@@ -158,11 +158,16 @@ func SplitHostPort(s string) (hosts []string, port string, err error) {
 	}
 
 	// Check if it parses as a reverse zone, if so we use that. Must be fully specified IP and mask.
-	_, n, err := net.ParseCIDR(s)
+	ip, n, err := net.ParseCIDR(s)
 	if err != nil {
 		return []string{s}, port, nil
 	}
-
+	if ip.To4() == nil { // v6 address, if the mask if not on a octet, it's not a valid cidr (we don't need to split v6 like v4)
+		ones, _ := n.Mask.Size()
+		if ones%8 != 0 {
+			return nil, "", fmt.Errorf("non-octet boundary is not supported for a v6 reverse: %s", ip)
+		}
+	}
 	// now check if multiple hosts must be returned.
 	nets := cidr.Class(n)
 	hosts = cidr.Reverse(nets)
