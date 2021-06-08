@@ -360,12 +360,10 @@ func (k *Kubernetes) Records(ctx context.Context, state request.Request, exact b
 	}
 
 	if dnsutil.IsReverse(state.Name()) > 0 {
-		fmt.Println("errNoItems")
 		return nil, errNoItems
 	}
 
 	if !wildcard(r.namespace) && !k.namespaceExposed(r.namespace) {
-		fmt.Println("errNsNotExposed")
 		return nil, errNsNotExposed
 	}
 
