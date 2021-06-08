@@ -352,14 +352,20 @@ func (k *Kubernetes) Records(ctx context.Context, state request.Request, exact b
 		return nil, e
 	}
 	if r.podOrSvc == "" {
+		if r.name != "" {
+			services, err := k.findServices(r, state.Zone)
+			return services, err
+		}
 		return nil, nil
 	}
 
 	if dnsutil.IsReverse(state.Name()) > 0 {
+		fmt.Println("errNoItems")
 		return nil, errNoItems
 	}
 
 	if !wildcard(r.namespace) && !k.namespaceExposed(r.namespace) {
+		fmt.Println("errNsNotExposed")
 		return nil, errNsNotExposed
 	}
 
@@ -459,6 +465,28 @@ func (k *Kubernetes) findPods(r recordRequest, zone string) (pods []msg.Service,
 
 // findServices returns the services matching r from the cache.
 func (k *Kubernetes) findServices(r recordRequest, zone string) (services []msg.Service, err error) {
+	var (
+		endpointsListFunc func() []*object.Endpoints
+		endpointsList     []*object.Endpoints
+		serviceList       []*object.Service
+	)
+	if r.name != "" {
+		serviceList = k.APIConn.ExternalNameIndex(r.name)
+		if len(serviceList) >= 1 {
+			zonePath := msg.Path("", coredns)
+			for _, svc := range serviceList {
+				for _, p := range svc.Ports {
+					err = nil
+					for _, ip := range svc.ClusterIPs {
+						s := msg.Service{Host: ip, Port: int(p.Port), TTL: k.ttl}
+						s.Key = strings.Join([]string{zonePath, svc.ExternalName}, "/")
+						services = append(services, s)
+					}
+				}
+			}
+			return services, err
+		}
+	}
 	if !wildcard(r.namespace) && !k.namespaceExposed(r.namespace) {
 		return nil, errNoItems
 	}
@@ -480,12 +508,6 @@ func (k *Kubernetes) findServices(r recordRequest, zone string) (services []msg.
 			err = nil
 		}
 	}
-
-	var (
-		endpointsListFunc func() []*object.Endpoints
-		endpointsList     []*object.Endpoints
-		serviceList       []*object.Service
-	)
 
 	if wildcard(r.service) || wildcard(r.namespace) {
 		serviceList = k.APIConn.ServiceList()

@@ -27,12 +27,14 @@ const (
 	svcIPIndex            = "ServiceIP"
 	epNameNamespaceIndex  = "EndpointNameNamespace"
 	epIPIndex             = "EndpointsIP"
+	externalNameIndex     = "externalName"
 )
 
 type dnsController interface {
 	ServiceList() []*object.Service
 	EndpointsList() []*object.Endpoints
 	SvcIndex(string) []*object.Service
+	ExternalNameIndex(string) []*object.Service
 	SvcIndexReverse(string) []*object.Service
 	PodIndex(string) []*object.Pod
 	EpIndex(string) []*object.Endpoints
@@ -118,7 +120,7 @@ func newdnsController(ctx context.Context, kubeClient kubernetes.Interface, opts
 		},
 		&api.Service{},
 		cache.ResourceEventHandlerFuncs{AddFunc: dns.Add, UpdateFunc: dns.Update, DeleteFunc: dns.Delete},
-		cache.Indexers{svcNameNamespaceIndex: svcNameNamespaceIndexFunc, svcIPIndex: svcIPIndexFunc},
+		cache.Indexers{svcNameNamespaceIndex: svcNameNamespaceIndexFunc, svcIPIndex: svcIPIndexFunc, externalNameIndex: externalNameIndexFunc},
 		object.DefaultProcessor(object.ToService, nil),
 	)
 
@@ -233,6 +235,14 @@ func svcIPIndexFunc(obj interface{}) ([]string, error) {
 	}
 	copy(idx[len(svc.ClusterIPs):], svc.ExternalIPs)
 	return idx, nil
+}
+
+func externalNameIndexFunc(obj interface{}) ([]string, error) {
+	svc, ok := obj.(*object.Service)
+	if !ok {
+		return nil, errObj
+	}
+	return []string{svc.ExternalName}, nil
 }
 
 func svcNameNamespaceIndexFunc(obj interface{}) ([]string, error) {
@@ -467,6 +477,21 @@ func (dns *dnsControl) PodIndex(ip string) (pods []*object.Pod) {
 
 func (dns *dnsControl) SvcIndex(idx string) (svcs []*object.Service) {
 	os, err := dns.svcLister.ByIndex(svcNameNamespaceIndex, idx)
+	if err != nil {
+		return nil
+	}
+	for _, o := range os {
+		s, ok := o.(*object.Service)
+		if !ok {
+			continue
+		}
+		svcs = append(svcs, s)
+	}
+	return svcs
+}
+
+func (dns *dnsControl) ExternalNameIndex(idx string) (svcs []*object.Service) {
+	os, err := dns.svcLister.ByIndex(externalNameIndex, idx)
 	if err != nil {
 		return nil
 	}

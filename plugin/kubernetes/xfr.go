@@ -9,6 +9,7 @@ import (
 
 	"github.com/coredns/coredns/plugin"
 	"github.com/coredns/coredns/plugin/etcd/msg"
+	"github.com/coredns/coredns/plugin/kubernetes/object"
 	"github.com/coredns/coredns/plugin/transfer"
 	"github.com/coredns/coredns/request"
 
@@ -58,7 +59,7 @@ func (k *Kubernetes) Transfer(zone string, serial uint32) (<-chan []dns.RR, erro
 						s.Key = strings.Join(svcBase, "/")
 
 						// Change host from IP to Name for SRV records
-						host = emitAddressRecord(ch, s)
+						host = emitAddressRecord(ch, s, svc)
 					}
 
 					for _, p := range svc.Ports {
@@ -78,6 +79,8 @@ func (k *Kubernetes) Transfer(zone string, serial uint32) (<-chan []dns.RR, erro
 						s.Key = strings.Join(append(svcBase, strings.ToLower("_"+string(p.Protocol)), strings.ToLower("_"+string(p.Name))), "/")
 
 						ch <- []dns.RR{s.NewSRV(msg.Domain(s.Key), 100)}
+
+						ch <- []dns.RR{s.NewSRV(svc.ExternalName, 100)}
 					}
 
 					//  Skip endpoint discovery if clusterIP is defined
@@ -94,11 +97,11 @@ func (k *Kubernetes) Transfer(zone string, serial uint32) (<-chan []dns.RR, erro
 							s.Key = strings.Join(svcBase, "/")
 							// We don't need to change the msg.Service host from IP to Name yet
 							// so disregard the return value here
-							emitAddressRecord(ch, s)
+							emitAddressRecord(ch, s, svc)
 
 							s.Key = strings.Join(append(svcBase, endpointHostname(addr, k.endpointNameMode)), "/")
 							// Change host from IP to Name for SRV records
-							host := emitAddressRecord(ch, s)
+							host := emitAddressRecord(ch, s, svc)
 							s.Host = host
 
 							for _, p := range eps.Ports {
@@ -112,6 +115,7 @@ func (k *Kubernetes) Transfer(zone string, serial uint32) (<-chan []dns.RR, erro
 
 								s.Key = strings.Join(append(svcBase, strings.ToLower("_"+string(p.Protocol)), strings.ToLower("_"+string(p.Name))), "/")
 								ch <- []dns.RR{s.NewSRV(msg.Domain(s.Key), srvWeight)}
+								ch <- []dns.RR{s.NewSRV(svc.ExternalName, 100)}
 							}
 						}
 					}
@@ -122,6 +126,7 @@ func (k *Kubernetes) Transfer(zone string, serial uint32) (<-chan []dns.RR, erro
 				s := msg.Service{Key: strings.Join(svcBase, "/"), Host: svc.ExternalName, TTL: k.ttl}
 				if t, _ := s.HostType(); t == dns.TypeCNAME {
 					ch <- []dns.RR{s.NewCNAME(msg.Domain(s.Key), s.Host)}
+					ch <- []dns.RR{s.NewCNAME(svc.ExternalName, s.Host)}
 				}
 			}
 		}
@@ -133,16 +138,20 @@ func (k *Kubernetes) Transfer(zone string, serial uint32) (<-chan []dns.RR, erro
 
 // emitAddressRecord generates a new A or AAAA record based on the msg.Service and writes it to a channel.
 // emitAddressRecord returns the host name from the generated record.
-func emitAddressRecord(c chan<- []dns.RR, s msg.Service) string {
+func emitAddressRecord(c chan<- []dns.RR, s msg.Service, svc *object.Service) string {
 	ip := net.ParseIP(s.Host)
 	dnsType, _ := s.HostType()
 	switch dnsType {
 	case dns.TypeA:
 		r := s.NewA(msg.Domain(s.Key), ip)
 		c <- []dns.RR{r}
+		r = s.NewA(svc.ExternalName, ip)
+		c <- []dns.RR{r}
 		return r.Hdr.Name
 	case dns.TypeAAAA:
 		r := s.NewAAAA(msg.Domain(s.Key), ip)
+		c <- []dns.RR{r}
+		r = s.NewAAAA(svc.ExternalName, ip)
 		c <- []dns.RR{r}
 		return r.Hdr.Name
 	}

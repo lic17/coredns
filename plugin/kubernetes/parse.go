@@ -10,6 +10,7 @@ type recordRequest struct {
 	// The named port from the kubernetes DNS spec, this is the service part (think _https) from a well formed
 	// SRV record.
 	port string
+	name string
 	// The protocol is usually _udp or _tcp (if set), and comes from the protocol part of a well formed
 	// SRV record.
 	protocol string
@@ -30,7 +31,6 @@ func parseRequest(name, zone string) (r recordRequest, err error) {
 	// 1. _port._protocol.service.namespace.pod|svc.zone
 	// 2. (endpoint): endpoint.service.namespace.pod|svc.zone
 	// 3. (service): service.namespace.pod|svc.zone
-
 	base, _ := dnsutil.TrimZone(name, zone)
 	// return NODATA for apex queries
 	if base == "" || base == Svc || base == Pod {
@@ -82,10 +82,24 @@ func parseRequest(name, zone string) (r recordRequest, err error) {
 	case 0: // endpoint only
 		r.endpoint = segs[last]
 	case 1: // service and port
+		host := segs[0]
 		r.protocol = stripUnderscore(segs[last])
 		r.port = stripUnderscore(segs[last-1])
+		start := last + 1
+		for last >= 0 {
+			host += "." + segs[start-last]
+			last--
+		}
+		r.name = host
 
 	default: // too long
+		host := segs[0]
+		start := last + 1
+		for last >= 0 {
+			host += "." + segs[start-last]
+			last--
+		}
+		r.name = host
 		return r, errInvalidRequest
 	}
 

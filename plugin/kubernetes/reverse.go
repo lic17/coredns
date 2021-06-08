@@ -35,7 +35,7 @@ func (k *Kubernetes) serviceRecordForIP(ip, name string) []msg.Service {
 			continue
 		}
 		domain := strings.Join([]string{service.Name, service.Namespace, Svc, k.primaryZone()}, ".")
-		return []msg.Service{{Host: domain, TTL: k.ttl}}
+		return []msg.Service{{Host: domain, TTL: k.ttl}, {Host: service.ExternalName, TTL: k.ttl}}
 	}
 	// If no cluster ips match, search endpoints
 	var svcs []msg.Service
